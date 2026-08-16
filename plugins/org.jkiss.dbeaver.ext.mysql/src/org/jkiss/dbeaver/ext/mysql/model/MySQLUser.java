@@ -27,6 +27,7 @@ import org.jkiss.dbeaver.model.access.DBAUser;
 import org.jkiss.dbeaver.model.exec.jdbc.JDBCPreparedStatement;
 import org.jkiss.dbeaver.model.exec.jdbc.JDBCResultSet;
 import org.jkiss.dbeaver.model.exec.jdbc.JDBCSession;
+import org.jkiss.dbeaver.model.exec.jdbc.JDBCStatement;
 import org.jkiss.dbeaver.model.impl.jdbc.JDBCUtils;
 import org.jkiss.dbeaver.model.meta.Property;
 import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
@@ -38,13 +39,14 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.StringTokenizer;
 import java.util.regex.Matcher;
 
 /**
  * MySQLUser
  */
-public class MySQLUser implements DBAUser, DBARole, DBPRefreshableObject, DBPSaveableObject, DBPQualifiedObject
+public class MySQLUser implements DBAUser, DBARole, DBPRefreshableObject, DBPSaveableObject, DBPQualifiedObject, DBPScriptObject, DBPScriptObjectExt2
 {
     private static final Log log = Log.getLog(MySQLUser.class);
 
@@ -307,6 +309,64 @@ public class MySQLUser implements DBAUser, DBARole, DBPRefreshableObject, DBPSav
     {
         grants = null;
         return this;
+    }
+
+    @Override
+    public boolean supportsObjectDefinitionOption(@NotNull String option) {
+        return DBPScriptObject.OPTION_INCLUDE_PERMISSIONS.equals(option);
+    }
+
+    @NotNull
+    @Override
+    public String getObjectDefinitionText(@NotNull DBRProgressMonitor monitor, @NotNull Map<String, Object> options) throws DBException {
+        StringBuilder ddl = new StringBuilder();
+        String lineBreak = System.lineSeparator();
+
+        try (JDBCSession session = DBUtils.openMetaSession(monitor, this, "Load user DDL")) {
+            try (JDBCStatement dbStat = session.createStatement()) {
+                try (JDBCResultSet dbResult = dbStat.executeQuery("SHOW CREATE USER " + getFullName())) {
+                    if (dbResult.next()) {
+                        String createUser = JDBCUtils.safeGetString(dbResult, 1);
+                        if (CommonUtils.isNotEmpty(createUser)) {
+                            ddl.append(createUser);
+                            if (!createUser.endsWith(";")) {
+                                ddl.append(';');
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            throw new DBException("Error reading user DDL", e);
+        }
+
+        if (CommonUtils.getOption(options, DBPScriptObject.OPTION_INCLUDE_PERMISSIONS)) {
+            if (ddl.length() > 0) {
+                ddl.append(lineBreak).append(lineBreak);
+            }
+
+            try (JDBCSession session = DBUtils.openMetaSession(monitor, this, "Load user grants")) {
+                try (JDBCStatement dbStat = session.createStatement()) {
+                    try (JDBCResultSet dbResult = dbStat.executeQuery("SHOW GRANTS FOR " + getFullName())) {
+                        while (dbResult.next()) {
+                            String grant = JDBCUtils.safeGetString(dbResult, 1);
+                            if (CommonUtils.isEmpty(grant)) {
+                                continue;
+                            }
+                            ddl.append(grant);
+                            if (!grant.endsWith(";")) {
+                                ddl.append(';');
+                            }
+                            ddl.append(lineBreak);
+                        }
+                    }
+                }
+            } catch (SQLException e) {
+                throw new DBException("Error reading user grants", e);
+            }
+        }
+
+        return ddl.toString();
     }
 
     @NotNull

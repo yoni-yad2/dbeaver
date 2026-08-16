@@ -61,4 +61,11 @@ public class MySQLDialectTest extends DBeaverUnitTest {
         // THEN
         assertEquals("[\"{\\\\\"subjectId\\\\\":3,\\\\\"levelId\\\\\":2,\\\\\"isOur\\\\\":true}\"]", actual);
     }
+
+    @Test
+    public void mysqlUserSupportsPermissionsOption() {
+        MySQLUser user = new MySQLUser(null, null);
+
+        assertEquals(true, user.supportsObjectDefinitionOption(org.jkiss.dbeaver.model.DBPScriptObject.OPTION_INCLUDE_PERMISSIONS));
+    }
 }
